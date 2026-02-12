@@ -35,18 +35,65 @@ def start_handler(message):
     username = message.from_user.username
     data = load_data()
 
-    # URL से डेटा निकालें
+    # --- 1. लिंक से डेटा डिकोड करें ---
     args = message.text.split()
-    sales_count = "N/A"
+    # Default Values (अगर डेटा न मिले)
+    sales = "N/A"
+    balance = "N/A"
+    status = "Unknown"
     join_date = "N/A"
-    
+
     if len(args) > 1:
         try:
+            # payload = sales_balance_status_date
             payload = args[1].split('_')
-            sales_count = payload[0]
-            join_date = payload[1]
-        except:
-            pass
+            sales = payload[0]
+            balance = payload[1]
+            status = payload[2]
+            join_date = payload[3]
+        except Exception as e:
+            print(f"Data Error: {e}")
+
+    # --- 2. ग्रुप में टॉपिक और बायोडाटा ---
+    if user_id not in data:
+        try:
+            # टॉपिक का नाम: Name (Paid/Free)
+            topic_title = f"{name} | {status.upper()}"
+            topic = bot.create_forum_topic(ADMIN_GROUP_ID, topic_title)
+            
+            data[user_id] = topic.message_thread_id
+            data[f"topic_{topic.message_thread_id}"] = user_id 
+            save_data(data)
+
+            # --- 3. सुंदर सा बायोडाटा कार्ड ---
+            bio_msg = (
+                f"👤 NEW TICKET OPENED\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"📛 Name: {name}\n"
+                f"🆔 User ID: {user_id}\n"
+                f"🔗 Username: @{username if username else 'No User'}\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"💰 Wallet Balance: ₹{balance}\n"
+                f"🛒 Total Sales: {sales}\n"
+                f"🏆 Status: {status.upper()}\n"
+                f"📅 Joined: {join_date}\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"🔔 *User is waiting for support...*"
+            )
+
+            # पिन कर दें ताकि हमेशा ऊपर दिखे
+            sent = bot.send_message(ADMIN_GROUP_ID, bio_msg, message_thread_id=topic.message_thread_id, parse_mode="Markdown")
+            bot.pin_chat_message(ADMIN_GROUP_ID, sent.message_id)
+
+            bot.send_message(user_id, "✅ Support Connected!\n\nनमस्ते! एडमिन को आपकी डीटेल्स मिल गई हैं। अब आप अपनी समस्या बता सकते हैं।", parse_mode="Markdown")
+        
+        except Exception as e:
+            bot.send_message(user_id, "❌ Support temporarily offline.")
+            print(f"Topic Error: {e}")
+    else:
+        bot.send_message(user_id, "👋 Welcome Back!\nहम सुन रहे हैं, बताइए क्या दिक्कत है?", parse_mode="Markdown")
+    
+  
 
     # --- TOPIC बनाना ---
     if user_id not in data:
