@@ -165,6 +165,34 @@ def reply_to_user(message):
             bot.copy_message(user_id, ADMIN_GROUP_ID, message.message_id)
         except:
             bot.send_message(ADMIN_GROUP_ID, "❌ Failed: User blocked bot.", message_thread_id=topic_id)
+# --- 4. टिकट क्लोज करने का कमांड (Admin Group में) ---
+@bot.message_handler(func=lambda m: str(m.chat.id) == str(ADMIN_GROUP_ID) and m.text == "/close")
+def close_ticket(message):
+    if not message.is_topic_message:
+        return
+
+    topic_id = message.message_thread_id
+    data = load_data()
+    user_key = f"topic_{topic_id}"
+    
+    if user_key in data:
+        user_id = data[user_key]
+        try:
+            # 1. यूजर को सूचना दें
+            bot.send_message(user_id, "✅ Support Ticket Closed!\n\nआपकी समस्या सुलझ गई है। अगर आपको फिर से मदद चाहिए, तो /start दबाएं।", parse_mode="Markdown")
+            
+            # 2. डेटा डिलीट करें (ताकि अगली बार फ्रेश चैट हो)
+            del data[user_id]
+            del data[user_key]
+            save_data(data)
+            
+            # 3. ग्रुप में टॉपिक डिलीट करें
+            bot.send_message(ADMIN_GROUP_ID, "🔴 Ticket Closed & Deleted.", message_thread_id=topic_id)
+            bot.delete_forum_topic(ADMIN_GROUP_ID, topic_id)
+            
+        except Exception as e:
+            bot.send_message(ADMIN_GROUP_ID, f"❌ Error: {e}", message_thread_id=topic_id)
+
 
 # --- SERVER ---
 app = Flask('')
