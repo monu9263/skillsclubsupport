@@ -3,9 +3,9 @@ import json, os, time
 from flask import Flask
 from threading import Thread
 
-# --- CONFIG ---
+# --- कॉन्फ़िगरेशन ---
 SUPPORT_TOKEN = os.getenv('SUPPORT_BOT_TOKEN')
-ADMIN_GROUP_ID = "-1003513803493" #
+ADMIN_GROUP_ID = "-1003513803493" # आपका ग्रुप ID
 
 bot = telebot.TeleBot(SUPPORT_TOKEN)
 app = Flask('')
@@ -23,13 +23,12 @@ def start_support(message):
     uid = str(message.chat.id)
     data = load_data()
     
-    # Payload Parsing (Fixes N/A)
+    # Payload Decoding
     args = message.text.split()
     sales, bal, status, date = "N/A", "N/A", "Unknown", "N/A"
     if len(args) > 1:
         parts = args[1].split('_')
-        if len(parts) >= 4: 
-            sales, bal, status, date = parts[0], parts[1], parts[2], parts[3]
+        if len(parts) >= 4: sales, bal, status, date = parts[0], parts[1], parts[2], parts[3]
 
     if uid not in data:
         try:
@@ -38,11 +37,17 @@ def start_support(message):
             data[f"topic_{topic.message_thread_id}"] = uid
             save_data(data)
             
-            bio = (f"👤 **NEW TICKET**\n🆔 User ID: `{uid}`\n💰 Balance: ₹{bal}\n🛒 Sales: {sales}\n🏆 Status: {status}\n📅 Joined: {date}")
+            bio = (f"👤 **NEW TICKET OPENED**\n"
+                   f"━━━━━━━━━━━━━━━━━━\n"
+                   f"🆔 ID: `{uid}`\n"
+                   f"💰 Balance: ₹{bal}\n"
+                   f"🛒 Sales: {sales}\n"
+                   f"🏆 Status: {status}\n"
+                   f"📅 Joined: {date}")
             bot.send_message(ADMIN_GROUP_ID, bio, message_thread_id=topic.message_thread_id, parse_mode="Markdown")
-        except: pass
+        except Exception as e: print(f"Topic Error: {e}")
 
-    bot.send_message(uid, "✅ एडमिन से चैट शुरू हो गई है। अपनी समस्या लिखें।")
+    bot.send_message(uid, "✅ एडमिन कनेक्टेड है। अपनी समस्या लिखें।")
 
 @bot.message_handler(func=lambda m: str(m.chat.id) == str(ADMIN_GROUP_ID))
 def admin_reply(message):
@@ -53,7 +58,7 @@ def admin_reply(message):
     if not uid: return
 
     if message.text == "/close":
-        bot.send_message(uid, "🔴 टिकट क्लोज कर दिया गया है।")
+        bot.send_message(uid, "🔴 आपकी समस्या सुलझ गई है। चैट बंद की जा रही है।")
         bot.delete_forum_topic(ADMIN_GROUP_ID, tid)
         del data[uid], data[f"topic_{tid}"]
         save_data(data)
@@ -68,10 +73,11 @@ def user_msg(message):
         bot.copy_message(ADMIN_GROUP_ID, uid, message.message_id, message_thread_id=data[uid])
 
 @app.route('/')
-def home(): return "Support Active"
+def home(): return "Support Live"
 
 def run(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
 
 if __name__ == "__main__":
     Thread(target=run).start()
     bot.polling(none_stop=True)
+    
