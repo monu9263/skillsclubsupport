@@ -25,19 +25,27 @@ app = Flask(__name__)
 # LOCAL DATA
 TOPIC_DB = 'active_topics.json'
 
-# --- 2. DATA MANAGER ---
+# --- 2. DATA MANAGER (Fixed Syntax) ---
 def load_db():
-    if not os.path.exists(TOPIC_DB): return {}
-    try: with open(TOPIC_DB, 'r') as f: return json.load(f)
-    except: return {}
+    if not os.path.exists(TOPIC_DB): 
+        return {}
+    try: 
+        with open(TOPIC_DB, 'r') as f: 
+            return json.load(f)
+    except: 
+        return {}
 
 def save_db(data):
-    try: with open(TOPIC_DB, 'w') as f: json.dump(data, f, indent=4)
-    except: pass
+    try: 
+        with open(TOPIC_DB, 'w') as f: 
+            json.dump(data, f, indent=4)
+    except: 
+        pass
 
 # --- 3. BRIDGE ---
 def fetch_user_stats(uid):
-    if not MAIN_BOT_URL: return "⚠️ Bridge Not Connected"
+    if not MAIN_BOT_URL: 
+        return "⚠️ Bridge Not Connected"
     try:
         url = f"{MAIN_BOT_URL}/api/user/{uid}"
         response = requests.get(url, timeout=5)
@@ -49,12 +57,14 @@ def fetch_user_stats(uid):
                     f"🆔 ID: <code>{uid}</code>\n"
                     f"💰 Wallet: ₹{user.get('balance', 0)}\n"
                     f"🛒 Purchases: {len(user.get('purchased', []))}")
-        else: return "⚠️ Data Not Found"
-    except: return "❌ Bridge Error"
+        else: 
+            return "⚠️ Data Not Found"
+    except: 
+        return "❌ Bridge Error"
 
-# --- 4. HANDLERS (ORDER FIXED) ---
+# --- 4. HANDLERS ---
 
-# ✅ 1. START COMMAND (Sabse Pehle)
+# ✅ 1. START COMMAND
 @bot.message_handler(commands=['start'])
 def start(m):
     if m.chat.type == 'private':
