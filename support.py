@@ -8,12 +8,17 @@ from flask import Flask, request
 # --- 1. CONFIGURATION ---
 API_TOKEN = os.getenv('API_TOKEN')  # सपोर्ट बोट का टोकन
 ADMIN_ID = os.getenv('ADMIN_ID', "8114779182")
-GROUP_ID = int(os.getenv('GROUP_ID')) # ग्रुप ID (Topic Enabled)
+# Group ID integer होना चाहिए
+try:
+    GROUP_ID = int(os.getenv('GROUP_ID')) 
+except:
+    GROUP_ID = None
+
 MAIN_BOT_URL = os.getenv('MAIN_BOT_URL') # Main Bot का Render Link (Bridge)
 WEBHOOK_URL = os.getenv('RENDER_EXTERNAL_URL') # इसका खुद का URL
 
 if not API_TOKEN or not GROUP_ID:
-    print("❌ ERROR: Config Missing!")
+    print("❌ ERROR: Config Missing! Check API_TOKEN and GROUP_ID")
 
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
@@ -21,15 +26,24 @@ app = Flask(__name__)
 # LOCAL DATA (Topics Store करने के लिए)
 TOPIC_DB = 'active_topics.json'
 
+# --- 2. DATA MANAGER (FIXED SYNTAX) ---
 def load_db():
-    if not os.path.exists(TOPIC_DB): return {}
-    try: with open(TOPIC_DB, 'r') as f: return json.load(f)
-    except: return {}
+    if not os.path.exists(TOPIC_DB):
+        return {}
+    try:
+        with open(TOPIC_DB, 'r') as f:
+            return json.load(f)
+    except:
+        return {}
 
 def save_db(data):
-    with open(TOPIC_DB, 'w') as f: json.dump(data, f, indent=4)
+    try:
+        with open(TOPIC_DB, 'w') as f:
+            json.dump(data, f, indent=4)
+    except:
+        pass
 
-# --- 2. BRIDGE: FETCH USER DATA ---
+# --- 3. BRIDGE: FETCH USER DATA ---
 def fetch_user_stats(uid):
     """Main Bot से यूजर का डेटा मांगता है"""
     if not MAIN_BOT_URL:
@@ -56,7 +70,7 @@ def fetch_user_stats(uid):
     except Exception as e:
         return f"❌ Bridge Error: {e}"
 
-# --- 3. HANDLERS ---
+# --- 4. HANDLERS ---
 
 # (A) USER MESSAGE -> CREATE/FIND TOPIC
 @bot.message_handler(func=lambda m: m.chat.type == 'private', content_types=['text', 'photo', 'video', 'document', 'audio', 'voice'])
@@ -84,7 +98,7 @@ def handle_user(message):
             db[uid] = topic_id
             save_db(db)
         except Exception as e:
-            bot.reply_to(message, "❌ Support System Error. Try later.")
+            bot.reply_to(message, "❌ Support System Error. Make sure Bot is Admin in Group & Topics Enabled.")
             return
 
     # मैसेज फॉरवर्ड करो (User -> Group Topic)
@@ -132,7 +146,7 @@ def start(m):
     if m.chat.type == 'private':
         bot.send_message(m.chat.id, "👋 <b>Support Center</b>\n\nआप अपनी समस्या यहाँ लिखें, एडमिन जल्द ही रिप्लाई करेंगे।", parse_mode="HTML")
 
-# --- 4. WEBHOOK ---
+# --- 5. WEBHOOK ---
 @app.route('/' + API_TOKEN, methods=['POST'])
 def getMessage():
     json_string = request.get_data().decode('utf-8')
