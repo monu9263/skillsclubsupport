@@ -26,7 +26,7 @@ app = Flask(__name__)
 # LOCAL DATA (Topics Store करने के लिए)
 TOPIC_DB = 'active_topics.json'
 
-# --- 2. DATA MANAGER (FIXED SYNTAX) ---
+# --- 2. DATA MANAGER ---
 def load_db():
     if not os.path.exists(TOPIC_DB):
         return {}
@@ -126,12 +126,24 @@ def handle_admin(message):
     # CLOSE COMMAND Logic
     if message.text and message.text.lower() == "/close":
         try:
+            # 1. टॉपिक डिलीट करें
             bot.delete_forum_topic(GROUP_ID, topic_id)
+            
+            # 2. डेटाबेस से हटाएं
             del db[user_id]
             save_db(db)
-            bot.send_message(user_id, "✅ <b>Chat Closed by Support Team.</b>\nFeel free to message again!", parse_mode="HTML")
-        except:
-            bot.reply_to(message, "❌ Error closing topic.")
+            
+            # 3. यूजर को फाइनल मैसेज भेजें (Updated)
+            close_msg = (
+                "✅ <b>Ticket Closed!</b>\n\n"
+                "आपकी टिकट क्लोज कर दी गई है।\n"
+                "Thanks for choosing <b>SkillsClub Support</b>. 🙏\n\n"
+                "Feel free to ask anything again!"
+            )
+            bot.send_message(user_id, close_msg, parse_mode="HTML")
+            
+        except Exception as e:
+            bot.reply_to(message, f"❌ Error closing topic: {e}")
         return
 
     # सामान्य रिप्लाई (Admin -> User)
@@ -140,11 +152,18 @@ def handle_admin(message):
     except:
         bot.reply_to(message, "❌ Failed (User blocked bot?)")
 
-# (C) START
+# (C) START COMMAND (UPDATED MSG)
 @bot.message_handler(commands=['start'])
 def start(m):
     if m.chat.type == 'private':
-        bot.send_message(m.chat.id, "👋 <b>Support Center</b>\n\nआप अपनी समस्या यहाँ लिखें, एडमिन जल्द ही रिप्लाई करेंगे।", parse_mode="HTML")
+        welcome_msg = (
+            "👋 <b>Welcome to SkillsClub Support!</b>\n\n"
+            "⏳ <b>Please Wait for Admin Reply.</b>\n"
+            "Share your problem below 👇\n\n"
+            "⏳ <b>कृपया एडमिन के रिप्लाई का इंतज़ार करें।</b>\n"
+            "अपनी समस्या नीचे लिखें 👇"
+        )
+        bot.send_message(m.chat.id, welcome_msg, parse_mode="HTML")
 
 # --- 5. WEBHOOK ---
 @app.route('/' + API_TOKEN, methods=['POST'])
