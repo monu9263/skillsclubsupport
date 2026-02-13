@@ -1,83 +1,152 @@
 import telebot
-import json, os, time
-from flask import Flask
-from threading import Thread
+from telebot import types
+import json
+import os
+import requests
+from flask import Flask, request
 
-# --- कॉन्फ़िगरेशन ---
-SUPPORT_TOKEN = os.getenv('SUPPORT_BOT_TOKEN')
-ADMIN_GROUP_ID = "-1003513803493" # आपका ग्रुप ID
+# --- 1. CONFIGURATION ---
+API_TOKEN = os.getenv('API_TOKEN')  # सपोर्ट बोट का टोकन
+ADMIN_ID = os.getenv('ADMIN_ID', "8114779182")
+GROUP_ID = int(os.getenv('GROUP_ID')) # ग्रुप ID (Topic Enabled)
+MAIN_BOT_URL = os.getenv('MAIN_BOT_URL') # Main Bot का Render Link (Bridge)
+WEBHOOK_URL = os.getenv('RENDER_EXTERNAL_URL') # इसका खुद का URL
 
-bot = telebot.TeleBot(SUPPORT_TOKEN)
-app = Flask('')
-DATA_FILE = 'support_data.json'
+if not API_TOKEN or not GROUP_ID:
+    print("❌ ERROR: Config Missing!")
 
-def load_data():
-    if not os.path.exists(DATA_FILE): return {}
-    with open(DATA_FILE, 'r') as f: return json.load(f)
+bot = telebot.TeleBot(API_TOKEN)
+app = Flask(__name__)
 
-def save_data(data):
-    with open(DATA_FILE, 'w') as f: json.dump(data, f, indent=4)
+# LOCAL DATA (Topics Store करने के लिए)
+TOPIC_DB = 'active_topics.json'
 
-@bot.message_handler(commands=['start'])
-def start_support(message):
-    uid = str(message.chat.id)
-    data = load_data()
+def load_db():
+    if not os.path.exists(TOPIC_DB): return {}
+    try: with open(TOPIC_DB, 'r') as f: return json.load(f)
+    except: return {}
+
+def save_db(data):
+    with open(TOPIC_DB, 'w') as f: json.dump(data, f, indent=4)
+
+# --- 2. BRIDGE: FETCH USER DATA ---
+def fetch_user_stats(uid):
+    """Main Bot से यूजर का डेटा मांगता है"""
+    if not MAIN_BOT_URL:
+        return "⚠️ Data Bridge Not Connected"
     
-    # Payload Decoding
-    args = message.text.split()
-    sales, bal, status, date = "N/A", "N/A", "Unknown", "N/A"
-    if len(args) > 1:
-        parts = args[1].split('_')
-        if len(parts) >= 4: sales, bal, status, date = parts[0], parts[1], parts[2], parts[3]
-
-    if uid not in data:
-        try:
-            topic = bot.create_forum_topic(ADMIN_GROUP_ID, f"{message.from_user.first_name} | {status}")
-            data[uid] = topic.message_thread_id
-            data[f"topic_{topic.message_thread_id}"] = uid
-            save_data(data)
+    try:
+        # Main Bot को कॉल करो
+        url = f"{MAIN_BOT_URL}/api/user/{uid}"
+        response = requests.get(url, timeout=5)
+        
+        if response.status_code == 200:
+            user = response.json()
+            if not user: return "👤 New User (No Data)"
             
-            bio = (f"👤 **NEW TICKET OPENED**\n"
-                   f"━━━━━━━━━━━━━━━━━━\n"
-                   f"🆔 ID: `{uid}`\n"
-                   f"💰 Balance: ₹{bal}\n"
-                   f"🛒 Sales: {sales}\n"
-                   f"🏆 Status: {status}\n"
-                   f"📅 Joined: {date}")
-            bot.send_message(ADMIN_GROUP_ID, bio, message_thread_id=topic.message_thread_id, parse_mode="Markdown")
-        except Exception as e: print(f"Topic Error: {e}")
+            # डेटा सजाकर भेजो
+            return (f"📊 <b>USER DATA (From Bridge):</b>\n"
+                    f"👤 Name: {user.get('name', 'Unknown')}\n"
+                    f"🆔 ID: <code>{uid}</code>\n"
+                    f"💰 Wallet: ₹{user.get('balance', 0)}\n"
+                    f"👥 Referrals: {user.get('referrals', 0)}\n"
+                    f"🛒 Purchases: {len(user.get('purchased', []))}")
+        else:
+            return "⚠️ User Data Not Found"
+    except Exception as e:
+        return f"❌ Bridge Error: {e}"
 
-    bot.send_message(uid, "✅ एडमिन कनेक्टेड है। अपनी समस्या लिखें।")
+# --- 3. HANDLERS ---
 
-@bot.message_handler(func=lambda m: str(m.chat.id) == str(ADMIN_GROUP_ID))
-def admin_reply(message):
-    if not message.is_topic_message: return
-    tid = message.message_thread_id
-    data = load_data()
-    uid = data.get(f"topic_{tid}")
-    if not uid: return
-
-    if message.text == "/close":
-        bot.send_message(uid, "🔴 आपकी समस्या सुलझ गई है। चैट बंद की जा रही है।")
-        bot.delete_forum_topic(ADMIN_GROUP_ID, tid)
-        del data[uid], data[f"topic_{tid}"]
-        save_data(data)
-    else:
-        bot.copy_message(uid, ADMIN_GROUP_ID, message.message_id)
-
-@bot.message_handler(func=lambda m: m.chat.type == 'private')
-def user_msg(message):
+# (A) USER MESSAGE -> CREATE/FIND TOPIC
+@bot.message_handler(func=lambda m: m.chat.type == 'private', content_types=['text', 'photo', 'video', 'document', 'audio', 'voice'])
+def handle_user(message):
     uid = str(message.chat.id)
-    data = load_data()
-    if uid in data:
-        bot.copy_message(ADMIN_GROUP_ID, uid, message.message_id, message_thread_id=data[uid])
+    name = message.from_user.first_name
+    
+    db = load_db()
+    topic_id = db.get(uid)
 
-@app.route('/')
-def home(): return "Support Live"
+    # अगर टॉपिक नहीं है, तो नया बनाओ
+    if not topic_id:
+        try:
+            # 1. टॉपिक बनाओ
+            topic = bot.create_forum_topic(GROUP_ID, f"{name} | {uid}")
+            topic_id = topic.message_thread_id
+            
+            # 2. Main Bot से डेटा मंगाओ (Bridge)
+            stats = fetch_user_stats(uid)
+            
+            # 3. ग्रुप में सबसे ऊपर डेटा भेजो
+            bot.send_message(GROUP_ID, stats, message_thread_id=topic_id, parse_mode="HTML")
+            
+            # 4. सेव करो
+            db[uid] = topic_id
+            save_db(db)
+        except Exception as e:
+            bot.reply_to(message, "❌ Support System Error. Try later.")
+            return
 
-def run(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
+    # मैसेज फॉरवर्ड करो (User -> Group Topic)
+    try:
+        bot.copy_message(GROUP_ID, uid, message.message_id, message_thread_id=topic_id)
+    except:
+        bot.reply_to(message, "❌ Message not sent.")
+
+# (B) ADMIN REPLY -> USER
+@bot.message_handler(func=lambda m: m.chat.id == GROUP_ID and m.message_thread_id, content_types=['text', 'photo', 'video', 'document', 'audio', 'voice'])
+def handle_admin(message):
+    topic_id = message.message_thread_id
+    db = load_db()
+    
+    # Topic ID से User ID ढूँढो
+    user_id = None
+    for uid, tid in db.items():
+        if tid == topic_id:
+            user_id = uid
+            break
+    
+    if not user_id:
+        return # टॉपिक शायद डेटाबेस में नहीं है
+
+    # CLOSE COMMAND Logic
+    if message.text and message.text.lower() == "/close":
+        try:
+            bot.delete_forum_topic(GROUP_ID, topic_id)
+            del db[user_id]
+            save_db(db)
+            bot.send_message(user_id, "✅ <b>Chat Closed by Support Team.</b>\nFeel free to message again!", parse_mode="HTML")
+        except:
+            bot.reply_to(message, "❌ Error closing topic.")
+        return
+
+    # सामान्य रिप्लाई (Admin -> User)
+    try:
+        bot.copy_message(user_id, GROUP_ID, message.message_id)
+    except:
+        bot.reply_to(message, "❌ Failed (User blocked bot?)")
+
+# (C) START
+@bot.message_handler(commands=['start'])
+def start(m):
+    if m.chat.type == 'private':
+        bot.send_message(m.chat.id, "👋 <b>Support Center</b>\n\nआप अपनी समस्या यहाँ लिखें, एडमिन जल्द ही रिप्लाई करेंगे।", parse_mode="HTML")
+
+# --- 4. WEBHOOK ---
+@app.route('/' + API_TOKEN, methods=['POST'])
+def getMessage():
+    json_string = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_string)
+    bot.process_new_updates([update])
+    return "!", 200
+
+@app.route("/")
+def webhook():
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL + "/" + API_TOKEN)
+    return "Support Bridge Running!", 200
 
 if __name__ == "__main__":
-    Thread(target=run).start()
-    bot.polling(none_stop=True)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
     
